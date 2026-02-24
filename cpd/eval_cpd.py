@@ -13,7 +13,7 @@ from utils.backbones import load_backbone
 from utils.cpd_utils import get_feats, true_bkpts, cpd_confusion, cpd_mae
 
 
-def eval_cpd(jpg_paths, model, backbone_type, device, gt_bkpts, pen=2, pelt_model="l2", plot=False):
+def eval_cpd(jpg_paths, model, backbone_type, device, gt_bkpts, feat_type='cls', tol=2, pen=2, pelt_model="l2", plot=False):
     
     # First extract features for each time point
     X = []
@@ -24,13 +24,13 @@ def eval_cpd(jpg_paths, model, backbone_type, device, gt_bkpts, pen=2, pelt_mode
     X = np.array(X)
     
     # Predict change points
-    model = rpt.Pelt(model="l2").fit(X)
+    model = rpt.Pelt(model=pelt_model).fit(X)
     pred_bkpts = model.predict(pen=pen)
 
     #print("Change points:", pred_bkpts)
     
     # Metrics
-    tp, fp, tn, fn = cpd_confusion(pred_bkpts, gt_bkpts)
+    tp, fp, tn, fn = cpd_confusion(pred_bkpts, gt_bkpts, tol=tol)
     mae = cpd_mae(pred_bkpts, gt_bkpts)
     
     # print('-- Performance --')
@@ -54,10 +54,19 @@ def main():
     ap.add_argument("--csv", required=True, help="CSV file with annotations")
     ap.add_argument("--root", required=True, help="Root directory containing imagery/")
     ap.add_argument("--backbone", default="remoteclip-14")
+    ap.add_argument("--feat_type", default='cls') #cls, patch
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--tol", type=int, default=2)
     ap.add_argument("--pen", type=int, default=2)
     ap.add_argument("--pelt_model", default='l2')
+    ap.add_argument("--output_dir", required=True, help="Directory to save metrics")
+    
     args = ap.parse_args()
+    
+    print('== PARAMS ==')
+    print(f'Backbone: {args.backbone}')
+    print(f'PELT: {args.pelt_model}')
+    print(f'Penalty: {args.pen}')
 
     device = args.device if (args.device != "cuda" or torch.cuda.is_available()) else "cpu"
     print(f'Using {device}!')
@@ -91,7 +100,7 @@ def main():
         gt_bkpts = true_bkpts(jpg_paths, row['event_start_date'], row['event_end_date'])
         #print(f'True change points: {gt_bkpts}')
 
-        tp, fp, tn, fn, mae = eval_cpd(jpg_paths, model, backbone_type=backbone_type, device=device, gt_bkpts=gt_bkpts, pen=args.pen, pelt_model=args.pelt_model, plot=False)
+        tp, fp, tn, fn, mae = eval_cpd(jpg_paths, model, backbone_type=backbone_type, device=device, gt_bkpts=gt_bkpts, feat_type=args.feat_type,  tol=args.tol, pen=args.pen, pelt_model=args.pelt_model, plot=False)
         tp_list.append(tp)
         fp_list.append(fp)
         tn_list.append(tn)
@@ -122,8 +131,32 @@ def main():
     print(f"Precision: {precision:.4f}")
     print(f"Recall: {recall:.4f}")
     print(f"F1: {f1:.4f}")
-    print(f"Average MAE: {avg_mae:.4f}")    
+    print(f"Average MAE: {avg_mae:.4f}")  
     
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_file = output_dir / "cpd_metrics.txt"
+    with open(out_file, "w") as f:
+        f.write("---- CPD Metrics ----\n\n")
+
+        # Write all argparse arguments automatically
+        f.write("---- Config ----\n")
+        for k, v in sorted(vars(args).items()):
+            f.write(f"{k}: {v}\n")
+
+        f.write("\n---- Results ----\n")
+        f.write(f"TP: {TP}\n")
+        f.write(f"FP: {FP}\n")
+        f.write(f"TN: {TN}\n")
+        f.write(f"FN: {FN}\n")
+        f.write(f"Precision: {precision:.4f}\n")
+        f.write(f"Recall: {recall:.4f}\n")
+        f.write(f"F1: {f1:.4f}\n")
+        f.write(f"Average MAE: {avg_mae:.4f}\n")
+
+    print(f"Metrics saved to {out_file}")
+
+    print('\n\n\n')
 
 if __name__ == "__main__":
     main()

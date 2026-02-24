@@ -2,3 +2,4 @@ pycache/
 .ipynb_checkpoints/
 data/
 logs/
+out/

@@ -28,45 +28,53 @@ def load_backbone(backbone_type):
     '''
     if backbone_type == 'dinov2':
         model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitl14')
+        print('loaded dinov2!')
     elif backbone_type == 'dinov2-reg':
         model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitl14_reg', force_reload=True)
     elif backbone_type == 'clip-32':
         model = CLIPModel.from_pretrained(PATH_CKPT_CLIP32).vision_model
+        print('loaded clip-32!')
     elif backbone_type == 'clip-14':
         model = CLIPModel.from_pretrained(PATH_CKPT_CLIP14).vision_model
+        print('loaded clip-14!')
     elif backbone_type == 'openclip-32':
         model, _, _ = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
         model = model.visual
         model.output_tokens = True
+        print('loaded openclip-32!')
     elif backbone_type == 'openclip-14':
         model, _, _ = open_clip.create_model_and_transforms('ViT-L-14', pretrained='openai')
         model = model.visual
         model.output_tokens = True
+        print('loaded openclip-14!')
     elif backbone_type == 'georsclip-32':
         model, _, _ = open_clip.create_model_and_transforms('ViT-B-32')
         ckpt = torch.load(PATH_CKPT_GEORSCLIP_32, map_location="cpu")
         model.load_state_dict(ckpt)
         model = model.visual
         model.output_tokens = True
+        print('loaded georsclip-32!')
     elif backbone_type == 'georsclip-14':
         model, _, _ = open_clip.create_model_and_transforms('ViT-L-14')
         ckpt = torch.load(PATH_CKPT_GEORSCLIP_14, map_location="cpu")
         model.load_state_dict(ckpt)
         model = model.visual
         model.output_tokens = True
+        print('loaded georsclip-14!')
     elif backbone_type == 'remoteclip-32':
         model, _, _ = open_clip.create_model_and_transforms('ViT-B-32')
         ckpt = torch.load(PATH_CKPT_REMOTECLIP_32, map_location="cpu")
         model.load_state_dict(ckpt)
         model = model.visual
         model.output_tokens = True
+        print('loaded remoteclip-32!')
     elif backbone_type == 'remoteclip-14':
         model, _, _ = open_clip.create_model_and_transforms('ViT-L-14')
         ckpt = torch.load(PATH_CKPT_REMOTECLIP_14, map_location="cpu")
-        print('loaded remoteclip-14!')
         model.load_state_dict(ckpt)
         model = model.visual
         model.output_tokens = True
+        print('loaded remoteclip-14!')
     elif backbone_type == 'openclip-14-remote-fmow':
         model, _, _ = open_clip.create_model_and_transforms('ViT-L-14')
         ckpt = torch.load(PATH_CKPT_OPENCLIP14_REMOTE_FMOW, map_location="cpu")

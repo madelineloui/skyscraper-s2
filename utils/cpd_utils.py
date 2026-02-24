@@ -11,7 +11,7 @@ import ruptures as rpt
 from utils.backbones import prepare_image_for_backbone, extract_backbone_features
 
 
-def get_feats(jpg_path, model, backbone_type, device):
+def get_feats(jpg_path, model, backbone_type, device, feat_type='cls'):
     with torch.no_grad():
         img = Image.open(jpg_path).convert("RGB")
 
@@ -29,7 +29,11 @@ def get_feats(jpg_path, model, backbone_type, device):
 
         x = prepare_image_for_backbone(x, backbone_type)
 
-        feats = extract_backbone_features(x, model, backbone_type)
+        if feat_type == 'patch':
+            feats = extract_backbone_features(x, model, backbone_type)
+        elif feat_type == 'cls':
+            dtype = next(model.parameters()).dtype
+            feats = model(x.to(dtype))[0].squeeze()
 
         #print(jpg_path.name, feats.shape)
 
