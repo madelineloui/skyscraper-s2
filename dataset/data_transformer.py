@@ -454,7 +454,7 @@ def create_event_description_json(
         human_prompt = (
             "This is a sequence of images capturing the same location at different times: "
             f"<video> \n"
-            f"Describe what is occurring in these images"
+            f"Describe what is occurring in these images in 2-3 sentences."
         )
 
         record = {
