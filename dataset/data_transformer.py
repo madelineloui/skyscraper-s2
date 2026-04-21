@@ -490,7 +490,9 @@ def create_event_grounding_json(
 
     Same structure as event detection JSON, but:
       - human prompt asks what the start and end date of the event is
-      - gpt response is "start = start_date, end = end_date" or "the event is not occurring"
+      - includes the image dates in chronological order
+      - gpt response is "start = start_date, end = end_date"
+        or "the event is not occurring"
     """
 
     articles = revised_dictionary(labels_path)
@@ -502,32 +504,34 @@ def create_event_grounding_json(
         start = str(a["event_start_date"])
         end = str(a["event_end_date"])
 
-        # Determine visibility label
         visible_flag = str(a.get("visible")).strip().lower()
         is_visible = visible_flag in {"true", "t", "1", "yes", "y"}
 
         gpt_answer = f"start = {start}, end = {end}" if is_visible else "the event is not occurring"
 
-        # Get imagery inputs using your helper functions
         video = build_video_list(imagery_dir, article_id)
         if not video:
             continue
 
-
         num_images, timestamps = get_image_dates_for_article(imagery_dir, article_id)
+        if not timestamps:
+            continue
 
-        # Repeat lat/lon for each image
         lat = float(a["latitude"])
         lon = float(a["longitude"])
         lat_lon = [[lat, lon] for _ in range(num_images)]
-
         sensors = [sensor_name for _ in range(num_images)]
 
-        # Build human prompt
+        # Dates are already expected to be in YYYY-MM-DD format
+        ordered_dates = ", ".join(timestamps)
+
         human_prompt = (
             "This is a sequence of images capturing the same location at different times: "
-            f"<video>\n"
-            f"If {event_type} is occurring in these images, what is the start date and end date for this event? Please answer with two dates in the format start = YYYY/MM/DD, end = YYYY/MM/DD or if the event is not occurring, answer with the event is not occurring"
+            "<video>\n"
+            f"The images are in chronological order with dates: {ordered_dates}.\n"
+            f"If {event_type} is occurring in these images, what is the start date and end date for this event? "
+            "Please answer with two dates in the format start = YYYY-MM-DD, end = YYYY-MM-DD "
+            "or if the event is not occurring, answer with the event is not occurring"
         )
 
         record = {

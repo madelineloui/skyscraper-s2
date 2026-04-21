@@ -53,6 +53,8 @@ def main():
     parser.add_argument("--data_root", required=True)   # path to skyscraper_gdelt_sentinel
     parser.add_argument("--model_path", required=True)
     parser.add_argument("--output_csv", default="results.csv")
+    parser.add_argument("--temperature", type=float, default=0.1)
+    parser.add_argument("--max_new_tokens", type=int, default=100)
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -110,9 +112,9 @@ def main():
                 with torch.inference_mode():
                     output_ids = model.generate(
                         **inputs,
-                        max_new_tokens=100,
+                        max_new_tokens=args.max_new_tokens,
                         do_sample=True,
-                        temperature=0.1,
+                        temperature=args.temperature,
                         use_cache=False,
                     )
 
