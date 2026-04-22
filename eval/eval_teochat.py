@@ -3,6 +3,7 @@ import json
 import csv
 import argparse
 import string
+import re
 
 import torch
 from PIL import Image
@@ -31,7 +32,6 @@ def get_prompt_and_label(example):
 
     return prompt, label
 
-
 def load_images(image_paths, max_images=None):
     image_paths = [p for p in image_paths if os.path.exists(p)]
     if len(image_paths) == 0:
@@ -47,6 +47,23 @@ def load_images(image_paths, max_images=None):
     images = [Image.open(p).convert("RGB") for p in image_paths]
     return images, image_paths
 
+def mostly_numbers_long(text):
+    text = text.translate(str.maketrans("", "", string.punctuation))
+    digits = sum(c.isdigit() for c in text)
+    return len(text) > 50 and digits / max(len(text), 1) > 0.5
+
+def is_valid_date_format(text):
+    return re.fullmatch(r"\d{4}-\d{2}-\d{2}, \d{4}-\d{2}-\d{2}", text.strip()) is not None
+
+def is_yes_no(text):
+    text = text.translate(str.maketrans("", "", string.punctuation)).strip().lower()
+    return text in {"yes", "no"}
+
+def is_less_than_5_words(text):
+    return len(text.strip().split()) < 5
+
+def has_number(text):
+    return any(c.isdigit() for c in text)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -59,6 +76,7 @@ def main():
     parser.add_argument("--load_8bit", action="store_true")
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--max_new_tokens", type=int, default=100)
+    parser.add_argument("--max_retries", type=int, default=3)
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -83,6 +101,8 @@ def main():
         model.get_model().get_video_tower().load_model()
     
     model = model.half().to(device)
+    #model = model.half()
+    model.eval()
 
     image_processor = AutoImageProcessor.from_pretrained(
         args.languagebind_image_path,
@@ -105,53 +125,99 @@ def main():
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(["id", "question", "ground_truth", "prediction"])
-
+    
         for example in tqdm(data):
             example_id = example["id"]
             if example_id in existing_ids:
                 continue
-
+    
             prompt, ground_truth = get_prompt_and_label(example)
-
+    
             image_paths = []
             for rel_path in example["video"]:
                 rel_path = rel_path.replace("skyscraper_gdelt_sentinel/", "")
                 image_paths.append(os.path.join(args.data_root, rel_path))
+                #print(image_paths)
+    
+            prediction = None
+    
+            for attempt in range(args.max_retries):
+                try:
+                    images, used_paths = load_images(image_paths, max_images=args.max_images)
+    
+                    torch.cuda.empty_cache()
+    
+                    out = run_inference_single(
+                        model=model,
+                        processor=image_processor,
+                        tokenizer=tokenizer,
+                        inp=prompt,
+                        image_paths=images,
+                        temperature=args.temperature,
+                        max_new_tokens=args.max_new_tokens,
+                    )
+    
+                    print(f"OUT (attempt {attempt+1}):", out)
+    
+                    if isinstance(out, tuple):
+                        pred = out[-1]
+                    else:
+                        pred = out
+    
+                    pred = str(pred).strip()
+    
+                    bad_output = (
+                        pred == "" or
+                        "error" in pred.lower() or
+                        re.search(r"(?:\d\s+){3,}\d", pred) or
+                        mostly_numbers_long(pred)
+                    )
+    
+                    if "grounding" in args.json_path:
+                        bad_output = bad_output or not is_valid_date_format(pred)
 
-            try:
-                images, used_paths = load_images(image_paths, max_images=args.max_images)
+                    if "detection" in args.json_path:
+                        bad_output = bad_output or not is_yes_no(pred)
 
-                torch.cuda.empty_cache()
+                    if "description" in args.json_path:
+                        bad_output = bad_output or is_less_than_5_words(pred)
 
-                out = run_inference_single(
-                    model=model,
-                    processor=image_processor,
-                    tokenizer=tokenizer,
-                    inp=prompt,
-                    image_paths=images,  # PIL images
-                    temperature=args.temperature,
-                    max_new_tokens=args.max_new_tokens,
-                )
-
-                if isinstance(out, tuple):
-                    prediction = out[-1]
-                else:
-                    prediction = out
-
-                prediction = str(prediction).strip()
-                prediction = prediction.translate(str.maketrans("", "", string.punctuation))
-
-            except Exception as e:
-                prediction = f"ERROR: {e}"
-
+                    if "classification" in args.json_path:
+                        bad_output = bad_output or has_number(pred)
+    
+                    if not bad_output:
+                        prediction = pred
+                        break
+    
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    print(f"attempt {attempt+1} failed: {e}")
+    
+                    if "probability tensor" in err_msg or "nan" in err_msg or "inf" in err_msg:
+                        torch.cuda.empty_cache()
+                        continue
+    
+                    prediction = f"ERROR: {e}"
+                    break
+    
+            if prediction is None:
+                prediction = "ERROR: max retries exceeded"
+    
+            if not prediction.startswith("ERROR:"):
+                prediction = prediction.translate(str.maketrans("", "", string.punctuation)).lower()
+            else:
+                prediction = prediction.lower()
+            ground_truth = ground_truth.translate(str.maketrans("", "", string.punctuation)).lower()
+    
             writer.writerow([
                 example_id,
                 prompt,
-                ground_truth.lower(),
-                prediction.lower(),
+                ground_truth,
+                prediction,
             ])
             f.flush()
-            print(example_id, "|", ground_truth.lower(), "|", prediction.lower())
+    
+            print(example_id, "|", ground_truth, "|", prediction)
 
 
 if __name__ == "__main__":

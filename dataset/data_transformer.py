@@ -223,51 +223,36 @@ def _format_options(options: List[str]) -> str:
     return ", ".join(options[:-1]) + f", or {options[-1]}."
 
 
-def build_event_classification_prompt(video: List[str], correct_label: str, not_visible_type) -> str:
+def build_event_classification_prompt(video: List[str], correct_label: str) -> str:
     """
     Rules:
-      - exactly 5 options
+      - exactly 4 options
       - correct label always included
-      - 'no event visible' always included and ALWAYS LAST
+      - no "no event visible"
       - remaining options randomly sampled from ALL_EVENT_TYPES
-      - order of other options doesn't matter
     """
 
     # Ensure unique event types
     all_types = list(set(ALL_EVENT_TYPES))
 
-    options = [correct_label]
+    # Remove correct label from candidates
+    candidates = [t for t in all_types if t != correct_label]
 
-    # Remove correct label + no-event from candidate pool
-    candidates = [
-        t for t in all_types
-        if t not in {correct_label, 'no event visible'}
-    ]
+    # Sample 3 distractors
+    random_opts = random.sample(candidates, 3)
 
-    # Determine how many random ones we need
-    if correct_label == 'no event visible':
-        # Need 4 random event types
-        random_opts = random.sample(candidates, 3)
-        options = random_opts  # correct label goes at end
-        options.append(not_visible_type)
-    else:
-        # Need 3 random event types
-        random_opts = random.sample(candidates, 3)
-        options.extend(random_opts)
-
-    # Shuffle ONLY the non-"no event visible" options
+    # Combine and shuffle
+    options = [correct_label] + random_opts
     random.shuffle(options)
 
-    # Append "no event visible" at the end
-    options.append('no event visible')
-
-    # 🔹 Force lowercase
+    # lowercase
     options = [opt.lower() for opt in options]
 
     prompt = (
         "This is a sequence of low-resolution, optical satellite images capturing the same location at different times: "
         f"<video>\n"
-        "Which of the following classes does this sequence of images belong to? Please answer using only one of the following classes: "
+        "Which of the following classes does this sequence of images belong to? "
+        "Please answer using only one of the following classes: "
         f"{_format_options(options)}"
     )
 
@@ -507,6 +492,10 @@ def create_event_grounding_json(
         visible_flag = str(a.get("visible")).strip().lower()
         is_visible = visible_flag in {"true", "t", "1", "yes", "y"}
 
+        # keep only visible events
+        if not is_visible:
+            continue
+
         gpt_answer = f"start = {start}, end = {end}" if is_visible else "the event is not occurring"
 
         video = build_video_list(imagery_dir, article_id)
@@ -526,12 +515,12 @@ def create_event_grounding_json(
         ordered_dates = ", ".join(timestamps)
 
         human_prompt = (
-            "This is a sequence of images capturing the same location at different times: "
-            "<video>\n"
-            f"The images are in chronological order with dates: {ordered_dates}.\n"
-            f"If {event_type} is occurring in these images, what is the start date and end date for this event? "
-            "Please answer with two dates in the format start = YYYY-MM-DD, end = YYYY-MM-DD "
-            "or if the event is not occurring, answer with the event is not occurring"
+            f"This is a sequence of satellite images of the same location over time: <video>\n"
+            f"The image dates in order are: {ordered_dates}.\n"
+            f"Give the first and last date when {event_type} is visible.\n"
+            f"Use only dates from the list above.\n"
+            f"Return exactly one answer in this format:\n"
+            f"YYYY-MM-DD, YYYY-MM-DD"
         )
 
         record = {
