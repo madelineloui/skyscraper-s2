@@ -113,6 +113,7 @@ def main():
     TN = sum(tn_list)
     FN = sum(fn_list)
 
+    accuracy = (TP + TN) / (TP + TN + FP + FN) if (TP + TN + FP + FN) > 0 else 0.0
     precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
     recall    = TP / (TP + FN) if (TP + FN) > 0 else 0.0
 
@@ -128,6 +129,7 @@ def main():
     print(f"FP: {FP}")
     print(f"TN: {TN}")
     print(f"FN: {FN}")
+    print(f"Accuracy: {accuracy:.4f}")
     print(f"Precision: {precision:.4f}")
     print(f"Recall: {recall:.4f}")
     print(f"F1: {f1:.4f}")
@@ -149,6 +151,7 @@ def main():
         f.write(f"FP: {FP}\n")
         f.write(f"TN: {TN}\n")
         f.write(f"FN: {FN}\n")
+        f.write(f"Accuracy: {accuracy:.4f}\n")
         f.write(f"Precision: {precision:.4f}\n")
         f.write(f"Recall: {recall:.4f}\n")
         f.write(f"F1: {f1:.4f}\n")

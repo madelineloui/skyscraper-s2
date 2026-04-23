@@ -4,8 +4,9 @@ import csv
 import argparse
 import numpy as np
 import torch
-from PIL import Image
+import re
 import string
+from PIL import Image
 from tqdm import tqdm
 from transformers import VideoLlavaProcessor, VideoLlavaForConditionalGeneration
 
@@ -30,6 +31,8 @@ def load_frames(image_paths, num_frames=8):
 
     return np.stack(frames)
 
+def is_valid_date_format(text):
+    return re.fullmatch(r"\d{4}-\d{2}-\d{2}, \d{4}-\d{2}-\d{2}", text.strip()) is not None
 
 def get_prompt_and_label(example):
     prompt = ""
@@ -79,6 +82,7 @@ def main():
 
     file_exists = os.path.exists(args.output_csv)
 
+    # Retry loop, check date for grounding
     with open(args.output_csv, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         if not file_exists:
@@ -89,41 +93,48 @@ def main():
 
             if example_id in existing_ids:
                 continue
-                
-            prompt, ground_truth = get_prompt_and_label(example)
 
-            prompt = f"USER: {prompt}\nASSISTANT:"
-            # print('\nPROMPT:', prompt, '\n')
-            #prompt = f"USER: This is a sequence of images capturing the same location at different times: <video> \nDescribe what is occurring in these images using 2-3 sentences.\nASSISTANT:"
+            for attempt in range(3):
+                prompt, ground_truth = get_prompt_and_label(example)
+    
+                prompt = f"USER: {prompt}\nASSISTANT:"
+                # print('\nPROMPT:', prompt, '\n')
+                #prompt = f"USER: This is a sequence of images capturing the same location at different times: <video> \nDescribe what is occurring in these images using 2-3 sentences.\nASSISTANT:"
+    
+                image_paths = []
+                for rel_path in example["video"]:
+                    rel_path = rel_path.replace("skyscraper_gdelt_sentinel/", "")
+                    image_paths.append(os.path.join(args.data_root, rel_path))
+    
+                try:
+                    frames = load_frames(image_paths)
+    
+                    inputs = processor(text=prompt, videos=frames, return_tensors="pt")
+                    inputs = {k: v.to(device) for k, v in inputs.items()}
+    
+                    torch.cuda.empty_cache()
+                    
+                    with torch.inference_mode():
+                        output_ids = model.generate(
+                            **inputs,
+                            max_new_tokens=args.max_new_tokens,
+                            do_sample=True,
+                            temperature=args.temperature,
+                            use_cache=False,
+                        )
+    
+                    full_response = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
+                    prediction = full_response.split("ASSISTANT:")[-1].strip()
+                    prediction = prediction.translate(str.maketrans('', '', string.punctuation))
 
-            image_paths = []
-            for rel_path in example["video"]:
-                rel_path = rel_path.replace("skyscraper_gdelt_sentinel/", "")
-                image_paths.append(os.path.join(args.data_root, rel_path))
+                    if "grounding" in args.json_path:
+                        if not is_valid_date_format(prediction):
+                            continue
 
-            try:
-                frames = load_frames(image_paths)
-
-                inputs = processor(text=prompt, videos=frames, return_tensors="pt")
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-
-                torch.cuda.empty_cache()
-                
-                with torch.inference_mode():
-                    output_ids = model.generate(
-                        **inputs,
-                        max_new_tokens=args.max_new_tokens,
-                        do_sample=True,
-                        temperature=args.temperature,
-                        use_cache=False,
-                    )
-
-                full_response = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
-                prediction = full_response.split("ASSISTANT:")[-1].strip()
-                prediction = prediction.translate(str.maketrans('', '', string.punctuation))
-
-            except Exception as e:
-                prediction = f"ERROR: {e}"
+                    break
+    
+                except Exception as e:
+                    prediction = f"ERROR: {e}"
 
             # print('GT:', ground_truth)
             # print('PRED:', prediction, '\n')
