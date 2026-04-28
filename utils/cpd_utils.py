@@ -4,40 +4,9 @@ from pathlib import Path
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from PIL import Image
 import numpy as np
 from datetime import datetime
 import ruptures as rpt
-from utils.backbones import prepare_image_for_backbone, extract_backbone_features
-
-
-def get_feats(jpg_path, model, backbone_type, device, feat_type='cls'):
-    with torch.no_grad():
-        img = Image.open(jpg_path).convert("RGB")
-
-        # (1, C, H, W) float32 on device
-        x = (
-            torch.from_numpy(np.array(img))
-            .permute(2, 0, 1)
-            .unsqueeze(0)
-            .float()
-            .to(device)
-        )
-        # Resize to 224x224
-        x = F.interpolate(x, size=(224, 224), mode="bicubic", align_corners=False)
-        #print(x.shape)
-
-        x = prepare_image_for_backbone(x, backbone_type)
-
-        if feat_type == 'patch':
-            feats = extract_backbone_features(x, model, backbone_type)
-        elif feat_type == 'cls':
-            dtype = next(model.parameters()).dtype
-            feats = model(x.to(dtype))[0].squeeze()
-
-        #print(jpg_path.name, feats.shape)
-
-    return feats
 
 
 def true_bkpts(jpg_paths, event_start_date=None, event_end_date=None):
@@ -71,7 +40,6 @@ def true_bkpts(jpg_paths, event_start_date=None, event_end_date=None):
     bkpts.append(T)
         
     return bkpts
-
 
 def cpd_confusion(pred, gt, tol=2):
     # remove final endpoint

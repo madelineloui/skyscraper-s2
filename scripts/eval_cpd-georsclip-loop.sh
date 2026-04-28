@@ -20,7 +20,7 @@ do
         do
             for PEN in 1
             do
-                python -m cpd.eval_cpd \
+                python -m eval.eval_cpd \
                   --csv ${CSV} \
                   --root ${ROOT} \
                   --backbone ${BACKBONE} \

@@ -7,6 +7,8 @@ import torch
 import torch.nn.functional as F
 from transformers import CLIPModel, CLIPTokenizer
 import open_clip
+from PIL import Image
+import numpy as np
 
 # Paths to the pre-trained models
 PATH_CKPT_CLIP14 = '/home/gridsan/manderson/ovdsat/weights/clip-vit-large-patch14'
@@ -94,13 +96,14 @@ def load_backbone(backbone_type):
         parameter.requires_grad = False
     return model
 
-def load_backbone_and_tokenizer(backbone_type):
+def load_backbone_and_tokenizer_and_preprocess(backbone_type):
     '''
     Load backbone model and tokenizer for VL models (CLIP).
 
     Args:
         backbone_type (str): Backbone type
     '''
+    preprocess = None
     if backbone_type == 'clip-32':
         model = CLIPModel.from_pretrained(PATH_CKPT_CLIP32)
         tokenizer = CLIPTokenizer.from_pretrained(PATH_CKPT_CLIP32)
@@ -108,38 +111,38 @@ def load_backbone_and_tokenizer(backbone_type):
         model = CLIPModel.from_pretrained(PATH_CKPT_CLIP14)
         tokenizer = CLIPTokenizer.from_pretrained(PATH_CKPT_CLIP14)
     elif backbone_type == 'openclip-32':
-        model, _, _ = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
         tokenizer = open_clip.get_tokenizer('ViT-B-32')
     elif backbone_type == 'openclip-14':
-        model, _, _ = open_clip.create_model_and_transforms('ViT-L-14', pretrained='openai')
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-L-14', pretrained='openai')
         tokenizer = open_clip.get_tokenizer('ViT-L-14')
     elif backbone_type == 'georsclip-32':
-        model, _, _ = open_clip.create_model_and_transforms('ViT-B-32')
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32')
         ckpt = torch.load(PATH_CKPT_GEORSCLIP_32, map_location="cpu")
         model.load_state_dict(ckpt)
         tokenizer = open_clip.get_tokenizer('ViT-B-32')
     elif backbone_type == 'georsclip-14':
-        model, _, _ = open_clip.create_model_and_transforms('ViT-L-14')
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-L-14')
         ckpt = torch.load(PATH_CKPT_GEORSCLIP_14, map_location="cpu")
         model.load_state_dict(ckpt)
         tokenizer = open_clip.get_tokenizer('ViT-L-14')
     elif backbone_type == 'remoteclip-32':
-        model, _, _ = open_clip.create_model_and_transforms('ViT-B-32')
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32')
         ckpt = torch.load(PATH_CKPT_REMOTECLIP_32, map_location="cpu")
         model.load_state_dict(ckpt)
         tokenizer = open_clip.get_tokenizer('ViT-B-32')
     elif backbone_type == 'remoteclip-14':
-        model, _, _ = open_clip.create_model_and_transforms('ViT-L-14')
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-L-14')
         ckpt = torch.load(PATH_CKPT_REMOTECLIP_14, map_location="cpu")
         model.load_state_dict(ckpt)
         tokenizer = open_clip.get_tokenizer('ViT-L-14')
     elif backbone_type == 'openclip-14-remote-fmow':
-        model, _, _ = open_clip.create_model_and_transforms('ViT-L-14')
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-L-14')
         ckpt = torch.load(PATH_CKPT_OPENCLIP14_REMOTE_FMOW, map_location="cpu")
         model.load_state_dict(ckpt)
         tokenizer = open_clip.get_tokenizer('ViT-L-14')
     elif backbone_type == 'openclip-14-geors-fmow':
-        model, _, _ = open_clip.create_model_and_transforms('ViT-L-14')
+        model, _, preprocess = open_clip.create_model_and_transforms('ViT-L-14')
         ckpt = torch.load(PATH_CKPT_OPENCLIP14_GEORS_FMOW, map_location="cpu")
         model.load_state_dict(ckpt)
         tokenizer = open_clip.get_tokenizer('ViT-L-14')
@@ -148,7 +151,7 @@ def load_backbone_and_tokenizer(backbone_type):
 
     for name, parameter in model.named_parameters():
         parameter.requires_grad = False
-    return model, tokenizer
+    return model, tokenizer, preprocess
 
 def prepare_image_for_backbone(input_tensor, backbone_type):
     '''
@@ -194,97 +197,48 @@ def get_backbone_params(backbone_type):
     return patch_size, D
 
 
-# Modified so that it returns CLS, not the patch tokens
-def extract_clip_features(images, model, backbone_type, tile_size=224):
-    '''
-    Extract features from a CLIP pre-trained backbone using a sliding window approach to handle images of variable sizes.
-
-    Args:
-        images (torch.Tensor): Input tensor with shape (B, C, H, W)
-        model (torch.nn.Module): CLIP model
-        backbone_type (str): Backbone type
-        tile_size (int): Size of the tiles to process the image. Set to 224 as CLIP pre-trained models use 224x224 images.
-    '''
-    
-    # Extract size and number of tiles
-    B, _, image_size, _ = images.shape
-    
-    #print(B, image_size)
-    
-    patch_size, D = get_backbone_params(backbone_type)
-    
-    #print(patch_size, D)
-
-    num_tiles = (image_size // tile_size)**2 if image_size % tile_size == 0 else (image_size // tile_size + 1)**2
-    num_tiles_side = int(num_tiles**0.5)
-    
-    #print(num_tiles)
-
-    # Create full image features tensor and a counter for aggregation
-    output_features = torch.zeros((B, image_size // patch_size, image_size // patch_size, D)).to(images.device)
-    count_tensor = torch.zeros((B, image_size // patch_size, image_size // patch_size,)).to(images.device)
-
+def get_feats(jpg_path, model, backbone_type, device, feat_type='cls'):
     with torch.no_grad():
-        for i in range(num_tiles_side):
-            for j in range(num_tiles_side):
+        img = Image.open(jpg_path).convert("RGB")
 
-                # Update tile coords
-                start_i = i * tile_size
-                start_j = j * tile_size
-                end_i = min(start_i + tile_size, image_size)
-                end_j = min(start_j + tile_size, image_size)
+        # (1, C, H, W) float32 on device
+        x = (
+            torch.from_numpy(np.array(img))
+            .permute(2, 0, 1)
+            .unsqueeze(0)
+            .float()
+            .to(device)
+        )
+        # Resize to 224x224
+        x = F.interpolate(x, size=(224, 224), mode="bicubic", align_corners=False)
+        #print(x.shape)
 
-                # If tile exceeds, make new tile containing more image content
-                if end_i - start_i < tile_size:
-                    start_i = end_i - tile_size
-                if end_j - start_j < tile_size:
-                    start_j = end_j - tile_size
-                
-                # Extract the tile from the original image
-                tile = images[:, :, start_i:end_i, start_j:end_j]
-                
-                if backbone_type == 'clip-32' or backbone_type == 'clip-14':
-                    image_features = model(tile).last_hidden_state[:, 1:]
-                else:
-                    image_features = model(tile)[-1]
+        x = prepare_image_for_backbone(x, backbone_type)
 
-                _, K, D = image_features.shape
-                p_w = p_h = int(K**0.5)
-                image_features = image_features.reshape(B, p_h, p_w, -1)  # Reshape to 2D
+        if feat_type == 'patch':
+            feats = extract_backbone_features(x, model, backbone_type)
+        elif feat_type == 'cls':
+            dtype = next(model.parameters()).dtype
+            feats = model(x.to(dtype))[0].squeeze()
 
-                # Add features to their location in the original image and track counts per location
-                output_features[:, start_i // patch_size:end_i // patch_size, start_j // patch_size:end_j // patch_size] += image_features
-                count_tensor[:, start_i // patch_size:end_i // patch_size, start_j // patch_size:end_j // patch_size] += 1
-    
-    # Average the overlapping patches
-    output_features /= count_tensor.unsqueeze(-1)
-    
-    # print(output_features[0,0,0,:10])
-    # print(output_features[0,0,1,:10])
-    # print(output_features[0,0,2,:10])
-    # print(output_features.shape)
-    
-    return output_features, count_tensor
-
-def extract_backbone_features(images, model, backbone_type, scale_factor=1):
-    '''
-    Extract features from a pre-trained backbone for any of the supported backbones.
-
-    Args:
-        images (torch.Tensor): Input tensor with shape (B, C, H, W)
-        model (torch.nn.Module): Backbone model
-        backbone_type (str): Backbone type
-        scale_factor (int): Scale factor for the input images. Set to 1 for no scaling.
-    '''
-    images = F.interpolate(images, scale_factor=scale_factor, mode='bicubic')
-
-    if 'dinov2' in backbone_type:
-        with torch.no_grad():
-            feats = model.forward_features(images)['x_prenorm'][:, 1:]
-    elif 'clip' in backbone_type:
-        feats, _ = extract_clip_features(images, model, backbone_type)
-        feats = feats.view(feats.shape[0], -1, feats.shape[-1])
-    else:
-        raise NotImplementedError('Backbone {} not implemented'.format(backbone_type))
+        #print(jpg_path.name, feats.shape)
 
     return feats
+
+
+def get_caption_sim(jpg_path, caption, model, preprocess, tokenizer, device):
+    with torch.no_grad():
+        img = Image.open(jpg_path).convert("RGB")
+
+        image = preprocess(img).unsqueeze(0).to(device)
+        text = tokenizer([caption]).to(device)
+
+        image_feat = model.encode_image(image)
+        text_feat = model.encode_text(text)
+
+        image_feat = image_feat / image_feat.norm(dim=-1, keepdim=True)
+        text_feat = text_feat / text_feat.norm(dim=-1, keepdim=True)
+
+        sim = image_feat @ text_feat.T   # shape: (1, 1)
+
+    return sim.squeeze()  # scalar

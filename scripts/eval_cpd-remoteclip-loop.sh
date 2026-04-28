@@ -12,15 +12,15 @@ ROOT=data/skyscraper_gdelt_sentinel
 CSV=${ROOT}/labels.csv
 BACKBONE=remoteclip-14
 
-for FEAT_TYPE in patch cls
+for FEAT_TYPE in cls
 do
-    for TOL in 1 2
+    for TOL in 0 1 2
     do
         for PELT_MODEL in l2
         do
-            for PEN in 1
+            for PEN in 0.1
             do
-                python -m cpd.eval_cpd \
+                python -m eval.eval_cpd \
                   --csv ${CSV} \
                   --root ${ROOT} \
                   --backbone ${BACKBONE} \
