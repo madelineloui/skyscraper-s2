@@ -9,6 +9,7 @@ import string
 from PIL import Image
 from tqdm import tqdm
 from transformers import VideoLlavaProcessor, VideoLlavaForConditionalGeneration
+from peft import PeftModel
 
 
 def load_frames(image_paths, num_frames=8):
@@ -58,6 +59,7 @@ def main():
     parser.add_argument("--output_csv", default="results.csv")
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--max_new_tokens", type=int, default=100)
+    parser.add_argument("--lora_ckpt", default=None)
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -68,6 +70,11 @@ def main():
         torch_dtype=torch.float16,
         # low_cpu_mem_usage=True,   # use this only if accelerate is installed
     ).to(device)
+
+    if args.lora_ckpt is not None:
+        print(f"Loading LoRA checkpoint from {args.lora_ckpt}")
+        model = PeftModel.from_pretrained(model, args.lora_ckpt)
+        model = model.merge_and_unload()
 
     with open(args.json_path, "r") as f:
         data = json.load(f)

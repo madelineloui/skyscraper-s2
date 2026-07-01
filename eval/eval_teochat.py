@@ -13,6 +13,7 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import logging as hf_logging
 hf_logging.set_verbosity_error()
+from peft import PeftModel
 
 from videollava.model.builder import load_pretrained_model
 from videollava.mm_utils import get_model_name_from_path
@@ -95,6 +96,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--max_new_tokens", type=int, default=100)
     parser.add_argument("--max_retries", type=int, default=3)
+    parser.add_argument("--lora_ckpt", default=None)
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -109,6 +111,11 @@ def main():
         load_8bit=args.load_8bit,
         device=device,
     )
+
+    if args.lora_ckpt is not None:
+        print(f"Loading LoRA checkpoint: {args.lora_ckpt}")
+        model = PeftModel.from_pretrained(model, args.lora_ckpt)
+        model = model.merge_and_unload()
     
     # Load towers — they initialize from their own pretrained weights, not the checkpoint
     if hasattr(model.get_model().get_image_tower(), "load_model"):
@@ -166,7 +173,7 @@ def main():
                 try:
                     # Pass string paths, not PIL images — run_inference_single handles loading
                     used_paths = load_image_paths(image_paths, num_frames=args.num_frames)
-                    print('# images:', len(used_paths))
+                    #print('# images:', len(used_paths))
 
                     torch.cuda.empty_cache()
 

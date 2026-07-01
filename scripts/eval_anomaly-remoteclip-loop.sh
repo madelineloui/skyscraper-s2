@@ -16,7 +16,7 @@ for FEAT_TYPE in cls cap_sim class_sim
 do
     for TOL in 0 1 2
     do
-        for STD in 0.5 0.75
+        for STD in 1.25
         do
             python -m eval.eval_anomaly \
               --csv ${CSV} \
