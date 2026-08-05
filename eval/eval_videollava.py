@@ -110,7 +110,7 @@ def main():
     
                 image_paths = []
                 for rel_path in example["video"]:
-                    rel_path = rel_path.replace("skyscraper_gdelt_sentinel/", "")
+                    rel_path = rel_path.replace("skyscraper_gdelt_planet/", "") #TODO change between planet and sentinel
                     image_paths.append(os.path.join(args.data_root, rel_path))
     
                 try:

@@ -41,8 +41,8 @@ def eval_cpd(jpg_paths, model, backbone_type, device, gt_bkpts, caption=None, to
     cpd_model = rpt.Pelt(model=pelt_model).fit(X)
     pred_bkpts = cpd_model.predict(pen=pen)
 
-    print("Change points:", pred_bkpts)
-    print(gt_bkpts)
+    # print("Change points:", pred_bkpts)
+    # print(gt_bkpts)
     
     # Metrics
     tp, fp, tn, fn = cpd_confusion(pred_bkpts, gt_bkpts, tol=tol)
@@ -69,7 +69,7 @@ def main():
     ap.add_argument("--csv", required=True, help="CSV file with annotations")
     ap.add_argument("--root", required=True, help="Root directory containing imagery/")
     ap.add_argument("--backbone", default="remoteclip-14")
-    ap.add_argument("--feat_type", default='cls') #cls, patch, cap_sim
+    ap.add_argument("--feat_type", default='cls') #cls cap_sim class_sim
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--tol", type=int, default=2)
     ap.add_argument("--pen", type=float, default=0.1)
@@ -114,6 +114,16 @@ def main():
         article_dir = imagery_root / str(article_id)
 
         jpg_paths = sorted(article_dir.rglob("*.jpg"), key=lambda p: str(p).lower())
+
+        # Skip any with less than 2 images
+        if len(jpg_paths) < 2:
+            print(
+                f"SKIPPING index={idx}, article_id={article_id}, "
+                f"num_images={len(jpg_paths)}",
+                flush=True,
+            )
+            continue
+            
         #print(f"\n=== {article_id} ({len(jpg_paths)} images) ===")
 
         #print(f'Start date: {row['event_start_date']}')
